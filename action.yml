@@ -1,0 +1,55 @@
+# Проверка alerts.yaml. Здесь исходник, наружу он уезжает публикацией
+# (alerts/bin/alerts_publish.py) в публичный Smolevich/alerts-check, откуда его
+# берёт любой репозиторий — включая чужого владельца — без токена:
+#
+#   - uses: Smolevich/alerts-check@v1
+#
+# Схема и проверка лежат рядом с действием символическими ссылками на
+# `alerts/alerts.schema.json` и `alerts/bin/alerts_check.py`: копии разъезжались
+# бы со схемой молча, и конфиг считался бы правильным по правилам полугодовой
+# давности. Публикация ссылки разыменовывает.
+#
+# Ключи и имена входов — латиницей. Кириллический ключ GitHub не разбирает и
+# роняет весь файл за 0 секунд без единой строки лога; русское живёт в
+# `name`/`description`, которые видит человек.
+name: Проверка alerts.yaml
+description: Проверяет alerts.yaml по схеме парка и валит сборку, называя строку и причину.
+
+inputs:
+  config:
+    description: Путь к конфигу в репозитории проекта
+    required: false
+    default: alerts.yaml
+  schema:
+    description: >-
+      Откуда брать схему: путь или адрес http(s). Пусто — схема, опубликованная
+      вместе с этим действием, то есть ровно та, по которой оно писалось.
+    required: false
+    default: ""
+
+runs:
+  using: composite
+  steps:
+    - name: Зависимости проверки
+      shell: bash
+      run: |
+        set -euo pipefail
+        # Своё окружение, а не системный python: на ubuntu-24.04 он
+        # externally-managed, и pip туда отказывается ставить вовсе.
+        python3 -m venv "$RUNNER_TEMP/alerts-check-venv"
+        "$RUNNER_TEMP/alerts-check-venv/bin/pip" install \
+            --quiet --disable-pip-version-check pyyaml jsonschema
+
+    - name: Проверка конфига
+      shell: bash
+      # Входы приходят переменными окружения, а не подстановкой в текст скрипта:
+      # подставленное значение — это чужой текст внутри нашей команды.
+      env:
+        ALERTS_CONFIG: ${{ inputs.config }}
+        ALERTS_SCHEMA: ${{ inputs.schema }}
+        ALERTS_ACTION: ${{ github.action_path }}
+      run: |
+        set -euo pipefail
+        schema="${ALERTS_SCHEMA:-$ALERTS_ACTION/alerts.schema.json}"
+        "$RUNNER_TEMP/alerts-check-venv/bin/python" \
+            "$ALERTS_ACTION/alerts_check.py" --схема "$schema" "$ALERTS_CONFIG"
